@@ -11,6 +11,7 @@ import h5py as h5
 import ifcb
 import numpy as np
 import pandas as pd
+from contextlib import nullcontext
 from ifcb.data.imageio import format_image
 from ifcb_features import classify, compute_features
 from PIL import Image
@@ -18,9 +19,7 @@ from PIL import Image
 import pandas as pd
 
 import warnings
-warnings.filterwarnings("ignore", category=DeprecationWarning) 
-
-logging.basicConfig(filename='/tmp/process_bins.log', filemode='w', level=logging.DEBUG)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 def process_bin(
     file: Path,
@@ -34,7 +33,7 @@ def process_bin(
     # logging.debug(f'Model ID: {hex(id(model_config.model))}')
     if not outdir.exists():
         # Due to race conditions when a job is concurrently processing bins
-        # from the same, date mkdir will occasionally fail if the directory 
+        # from the same, date mkdir will occasionally fail if the directory
         # was created by a different process in the time between when it checks
         # for the directory's existence and when it actually goes to create the
         # directory. If this happens, just ignore it.
@@ -49,88 +48,106 @@ def process_bin(
     features_fname = outdir / f'{bin.lid}_fea_v2.csv'
     class_fname = outdir / f'{bin.lid}_class.h5'
 
-    if force or not blobs_fname.exists() or not features_fname.exists() or not class_fname.exists():
-
-        if not extract_images:
-            features_df = pd.read_csv(features_fname)
-        else:
-            features_df = None
-
-        roi_number = None
-        num_rois = len(bin.images.keys())
-
+    # determine which files need to be (re-)generated
+    if not force:
+        all_files_exist = True
+        mode_change_messages = []
+        if extract_images:
+            extract_files_exist = blobs_fname.exists() and features_fname.exists()
+            if extract_files_exist:
+                #no need to extract if files exist and we're not forcing
+                extract_images = False
+                mode_change_messages.append(f'All extraction files exist for {bin.pid}, skipping extraction')
+            all_files_exist = all_files_exist and extract_files_exist
         if classify_images:
-            image_stack = np.zeros((num_rois, model_config.img_dims[0], model_config.img_dims[1], 3))
+            all_files_exist = all_files_exist and class_fname.exists()
+            if class_fname.exists():
+                mode_change_messages.append(f'All classification files exist for {bin.pid}, skipping classification')
+        if all_files_exist:
+            logging.info(f'Output files for {bin.pid} already exist, skipping. To override, set --force flag.')
+            return
+        elif mode_change_messages:
+            for msg in mode_change_messages:
+                logging.info(msg)
 
-        with ZipFile(blobs_fname, 'w') as blob_zip:
-            for ix, roi_number in enumerate(bin.images):
-                if ix % 100 == 0:
-                    logging.info(f'Processing ROI {roi_number}')
-                try:
-                    # Select image
-                    image = bin.images[roi_number]
+    if not extract_images:
+        features_df = pd.read_csv(features_fname)
+    else:
+        features_df = None
 
-                    if extract_images:
-                        # Compute features
-                        blob_img, features = compute_features(image)
+    roi_number = None
+    num_rois = len(bin.images.keys())
 
-                        # Write blob image to zip as bytes.
-                        # Include ROI number in filename. e.g. D20141117T234033_IFCB102_2.png
-                        image_bytes = blob2bytes(blob_img)
-                        blob_zip.writestr(f'{bin.pid.with_target(roi_number)}.png', image_bytes)
+    if classify_images:
+        image_stack = np.zeros((num_rois, model_config.img_dims[0], model_config.img_dims[1], 3))
 
-                        # Add features row to dataframe
-                        # - Copied pyifcb
-                        row_df = features2df(features, roi_number)
-                        if features_df is None:
-                            features_df = row_df
-                        else:
-                            features_df = pd.concat([features_df, row_df])
+    # loop through all images in the bin
+    with (ZipFile(blobs_fname, 'w') if extract_images else nullcontext()) as blob_zip:
+        num_images = len(bin.images)
+        for ix, roi_number in enumerate(bin.images):
+            if ix % 100 == 0:
+                logging.info(f'Processing ROI {roi_number} ({ix + 1}/{num_images})')
+            try:
+                # Select image
+                image = bin.images[roi_number]
 
-                    elif ix % 100 == 0:
-                        logging.info('Extraction turned off, skipping')
+                if extract_images:
+                    # Compute features
+                    blob_img, features = compute_features(image)
 
-                    if classify_images:
+                    # Write blob image to zip as bytes.
+                    # Include ROI number in filename. e.g. D20141117T234033_IFCB102_2.png
+                    image_bytes = blob2bytes(blob_img)
+                    blob_zip.writestr(f'{bin.pid.with_target(roi_number)}.png', image_bytes)
 
-                        # Resize image, normalized, and add to stack
-                        pil_img = (Image
-                            .fromarray(image)
-                            .convert('RGB')
-                            .resize(model_config.img_dims, Image.BILINEAR)
-                        )
-                        img = np.array(pil_img) / model_config.norm
-                        image_stack[ix, :] = img
-                except Exception as e:
-                    logging.error(f'Failed to extract {file} for ROI {roi_number}')
-                    if os.path.exists(blobs_fname):
-                        os.remove(blobs_fname)
-                    raise e
+                    # Add features row to dataframe
+                    # - Copied pyifcb
+                    row_df = features2df(features, roi_number)
+                    if features_df is None:
+                        features_df = row_df
+                    else:
+                        features_df = pd.concat([features_df, row_df])
 
-        # Save features dataframe
-        # - Empty features indicates no samples, so remaining steps are skipped
-        if features_df is not None:
+                if classify_images:
+                    # Resize image, normalized, and add to stack
+                    pil_img = (Image
+                        .fromarray(image)
+                        .convert('RGB')
+                        .resize(model_config.img_dims, Image.BILINEAR)
+                    )
+                    img = np.array(pil_img) / model_config.norm
+                    image_stack[ix, :] = img
+            except Exception as e:
+                logging.error(f'Failed to extract {file} for ROI {roi_number}')
+                if os.path.exists(blobs_fname):
+                    os.remove(blobs_fname)
+                raise e
+
+    # Save features dataframe
+    # - Empty features indicates no samples, so remaining steps are skipped
+    if features_df is not None:
+        #only save features to disk if we're extracting, otherwise we loaded
+        #these features from this existing file above
+        if extract_images:
             logging.info(f'Saving features to {features_fname}')
             features_df.to_csv(features_fname, index=False, float_format='%.6f')
 
-            if classify_images:
-                logging.info(f'Classifying images and saving to {class_fname}')
-                predictions_df = classify.predict(model_config, image_stack)
+        if classify_images:
+            logging.info(f'Classifying images and saving to {class_fname}')
+            predictions_df = classify.predict(model_config, image_stack)
 
-                # Since classify.predict (which calls Model.predict) is run in a for loop, memory consumption 
-                # will build up and result in an OOM error, so we excplicitly clear it out after each model run.
-                gc.collect()  
+            # Since classify.predict (which calls Model.predict) is run in a for loop, memory consumption
+            # will build up and result in an OOM error, so we excplicitly clear it out after each model run.
+            gc.collect()
 
-                # Save predictions to h5
-                predictions2h5(model_config, class_fname, predictions_df, bin.lid, features_df)
-
-            else:
-                logging.info('Classification turned off, skipping')
+            # Save predictions to h5
+            predictions2h5(model_config, class_fname, predictions_df, bin.lid, features_df)
 
         else:
-            logging.info(f'No features found in {file}. Skipping classification.')
+            logging.info('Classification turned off, skipping')
 
     else:
-        logging.info(f'Output for {bin.pid} already exists, skipping. To override, set --force flag.')
+        logging.info(f'No features found in {file}. Skipping classification.')
 
 def blob2bytes(blob_img: np.ndarray) -> bytes:
     """Format blob as image to be written in zip file."""
@@ -170,13 +187,21 @@ def predictions2h5(model_config: classify.KerasModelConfig, outfile: Path, predi
 @click.option('--extract-images/--no-extract-images', default=True)
 @click.option('--classify-images/--no-classify-images', default=True)
 @click.option('--force/--no-force', default=False)
+@click.option('--log-file', type=click.Path(writable=True, dir_okay=False))
 @click.argument('input_dir', type=click.Path(exists=True))
 @click.argument('output_dir', type=click.Path(exists=True))
 @click.argument('model_path', type=click.Path(exists=True))
 @click.argument('class_path', type=click.Path(exists=True))
 @click.argument('model_id', type=str)
-def cli(extract_images: bool, classify_images: bool, force: bool, input_dir: Path, output_dir: Path, model_path: Path, class_path: Path, model_id: str):
+def cli(extract_images: bool, classify_images: bool, force: bool, input_dir: Path, output_dir: Path,
+        model_path: Path, class_path: Path, log_file: Path, model_id: str):
     """Process all files in input_dir and write results to output_dir."""
+
+    log_handlers = [logging.StreamHandler()]
+    if (log_file):
+        log_handlers.append(logging.FileHandler(log_file))
+    logging.basicConfig(handlers=log_handlers, level=logging.DEBUG)
+
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
 

@@ -13,8 +13,8 @@ dependencies:
   - click
   - pip
   - pip:
-    - tensorflow==2.6.2
-    - protobuf==3.20.1
+    - tensorflow==2.15.1
+    - protobuf==3.20.3
     - pyfftw>=0.13.0
     - phasepack
     - git+https://github.com/joefutrelle/pyifcb.git
