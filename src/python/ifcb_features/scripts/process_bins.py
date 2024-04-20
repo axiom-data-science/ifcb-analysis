@@ -29,8 +29,6 @@ def process_bin(
     classify_images: bool = True,
     force: bool = False
 ):
-    logging.info(f'Processing {file}, saving results to {outdir}')
-    # logging.debug(f'Model ID: {hex(id(model_config.model))}')
     if not outdir.exists():
         # Due to race conditions when a job is concurrently processing bins
         # from the same, date mkdir will occasionally fail if the directory
@@ -49,9 +47,9 @@ def process_bin(
     class_fname = outdir / f'{bin.lid}_class.h5'
 
     # determine which files need to be (re-)generated
+    mode_change_messages = []
     if not force:
         all_files_exist = True
-        mode_change_messages = []
         if extract_images:
             extract_files_exist = blobs_fname.exists() and features_fname.exists()
             if extract_files_exist:
@@ -64,11 +62,15 @@ def process_bin(
             if class_fname.exists():
                 mode_change_messages.append(f'All classification files exist for {bin.pid}, skipping classification')
         if all_files_exist:
-            logging.info(f'Output files for {bin.pid} already exist, skipping. To override, set --force flag.')
+            logging.debug(f'Output files for {bin.pid} already exist, skipping. To override, set --force flag.')
             return
-        elif mode_change_messages:
-            for msg in mode_change_messages:
-                logging.info(msg)
+
+    logging.info(f'Processing {bin.pid}, saving results to {outdir}')
+    # logging.debug(f'Model ID: {hex(id(model_config.model))}')
+
+    if mode_change_messages:
+        for msg in mode_change_messages:
+            logging.info(msg)
 
     if not extract_images:
         features_df = pd.read_csv(features_fname)
