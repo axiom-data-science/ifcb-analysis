@@ -1,6 +1,7 @@
 --extra-index-url https://pypi.nvidia.com
 click
 cython
+dask[distributed]
 numpy
 pandas
 phasepack
