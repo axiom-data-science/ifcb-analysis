@@ -263,7 +263,7 @@ def process(
         else:
             logging.info(f'{len(pids)} pids, first {pids[0]}, last {pids[-1]}')
     if start_date or end_date:
-        logging.info(f'Start date f{start_date}, end date f{end_date}')
+        logging.info(f'Start date {start_date}, end date {end_date}')
 
     model_config = classify.KerasModelConfig(model_path=model_path, class_path=class_path, model_id=model_id)
     bins = available_bins(ifcb_data_dir=ifcb_data_dir, pids=pids, start_date=start_date, end_date=end_date)
