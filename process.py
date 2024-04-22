@@ -68,7 +68,6 @@ def process_bin(
             return
 
     logging.info(f'Processing {bin.pid}, saving results to {outdir}')
-    # logging.debug(f'Model ID: {hex(id(model_config.model))}')
 
     if mode_change_messages:
         for msg in mode_change_messages:
@@ -187,9 +186,21 @@ def predictions2h5(model_config: classify.KerasModelConfig, outfile: Path, predi
         f.create_dataset('roi_numbers', data=features['roi_number'], compression='gzip', dtype='uint16')
 
 
-def available_bins(ifcb_data_dir: Path, start_date: datetime, end_date: datetime) -> List[Path]:
+def available_bins(ifcb_data_dir: Path, pids: List[str], start_date: datetime, end_date: datetime) -> List[Path]:
     """Given path to data return list of bins available, optionally using start and end date to discover"""
-    if start_date and end_date:
+    if pids:
+        bins = []
+        for pid in pids:
+            adc = f'{pid}.adc'
+            date_dir_adc = ifcb_data_dir / date_dir(pid) / adc
+            root_dir_adc = ifcb_data_dir / adc
+            if root_dir_adc.exists():
+                bins.append(root_dir_adc)
+            elif date_dir_adc.exists():
+                bins.append(date_dir_adc)
+            else:
+                logging.warn(f'No matches found for specified pid {pid}')
+    elif start_date and end_date:
         ndays = (end_date - start_date).days
         dates = [start_date + timedelta(days=i) for i in range(ndays)]
 
@@ -203,25 +214,28 @@ def available_bins(ifcb_data_dir: Path, start_date: datetime, end_date: datetime
             daily_bins.sort()
             logging.debug(f'Adding {daily_bins} to available bins')
             bins += daily_bins
-
-        return bins
     else:
         # just scan recursively for *.adc if start and end date weren't provided
         bins = list(ifcb_data_dir.rglob('*.adc'))
         bins.sort()
-        return bins
+
+    return bins
+
+
+def date_from_pid(pid: str) -> datetime:
+    return datetime.strptime(pid[0:10], 'D%Y%m%dT')
+
+
+def date_dir(pid: str) -> str:
+    # DYYYYmmddTHHMMSS_<ifcb-name>.adc -> YYYY/DYYYYmmdd
+    # D20230717T012101_IFCB104.adc -> 2023/D20230717
+    return f'{pid[1:5]}/{pid[:9]}'
 
 
 def output_path(features_output_dir: Path, bin: Path) -> Path:
     """Given output dir and bin name, create path for output file following canonical naming."""
-    bin = str(bin.name)
     # DYYYYmmddTHHMMSS_<ifcb-name>.adc
-    # lid: DYYYYmmddTHHMMSS
-    lid, ifcb = bin.split('.')[0].split('_')
-    year = bin[1:5]
-    date = lid[:9]
-
-    return features_output_dir / year / date
+    return features_output_dir / date_dir(bin.name)
 
 
 def process(
@@ -231,19 +245,28 @@ def process(
     model_id: str,
     class_path: Path,
     dask_priority: int,
+    pids: List[str] | None = None,
     start_date: datetime | None = None,
     end_date: datetime | None = None,
+    date_dirs: bool = True,
     extract_images: bool = True,
     classify_images: bool = True,
     force: bool = False,
     use_dask: bool = True
 ):
-    """Process bins between start and end dates."""
-    logging.info(f'Processing IFCB data in {ifcb_data_dir} from {start_date} to {end_date}')
-    logging.info(f'Writing features to {features_output_dir}')
+    """Process bins."""
+    logging.info(f'Processing IFCB data in {ifcb_data_dir}')
+    logging.info(f'Writing output to {features_output_dir}')
+    if pids:
+        if len(pids) <= 10:
+            logging.info(f'pids: {pids}')
+        else:
+            logging.info(f'{len(pids)} pids, first {pids[0]}, last {pids[-1]}')
+    if start_date or end_date:
+        logging.info(f'Start date f{start_date}, end date f{end_date}')
 
     model_config = classify.KerasModelConfig(model_path=model_path, class_path=class_path, model_id=model_id)
-    bins = available_bins(ifcb_data_dir, start_date, end_date)
+    bins = available_bins(ifcb_data_dir=ifcb_data_dir, pids=pids, start_date=start_date, end_date=end_date)
 
     if use_dask and classify_images:
         logging.info('Classification is not supported by the Dask cluster. Running serially instead.')
@@ -255,7 +278,11 @@ def process(
 
         with Client(os.environ['DASK_CLUSTER']) as client:
 
-            outdirs = [output_path(features_output_dir, bin) for bin in bins]
+            if date_dirs:
+                outdirs = [output_path(features_output_dir, bin) for bin in bins]
+            else:
+                outdirs = features_output_dir * len(bins)
+
             args = [
                 bins,
                 outdirs,
@@ -278,7 +305,11 @@ def process(
                 percent_complete = (ix/float(num_bins)) * 100
                 logging.info(f'Progress: {percent_complete:.1f}% {ix}/{num_bins} ({bin})')
 
-            outdir = output_path(features_output_dir, bin)
+            if date_dirs:
+                outdir = output_path(features_output_dir, bin)
+            else:
+                outdir = features_output_dir
+
             try:
                 process_bin(bin, outdir, model_config, extract_images, classify_images, force)
             except Exception as e:
@@ -293,8 +324,11 @@ def process(
 @click.option('--log-file', type=click.Path(writable=True, dir_okay=False))
 @click.option('--use-dask/--no-use-dask', default=os.getenv('DASK_CLUSTER') is not None)
 @click.option('--dask-priority', type=click.INT, default=0)
+@click.option('--pids', '--pid', type=click.STRING)
+@click.option('--pids-file', '--pid-file', type=click.Path(dir_okay=False))
 @click.option('--start-date', type=click.DateTime(formats=['%Y-%m-%d']))
 @click.option('--end-date', type=click.DateTime(formats=['%Y-%m-%d']))
+@click.option('--date-dirs/--no-date-dirs', default=True)
 @click.argument('ifcb_data_dir', type=click.Path(exists=True, file_okay=False, path_type=Path))
 @click.argument('features_output_dir', type=click.Path(exists=True, file_okay=False, path_type=Path))
 @click.argument('model_path', type=click.Path(exists=True))
@@ -306,15 +340,18 @@ def cli(
     force: bool,
     log_level: str,
     log_file: Path,
+    use_dask: bool,
+    dask_priority: int,
+    pids: str,
+    pids_file: str,
+    start_date: datetime,
+    end_date: datetime,
+    date_dirs: bool,
     ifcb_data_dir: Path,
     features_output_dir: Path,
     model_path: Path,
     model_id: str,
     class_path: Path,
-    start_date: datetime,
-    end_date: datetime,
-    use_dask: bool,
-    dask_priority: int,
 ):
     """Process bins between start and end dates."""
 
@@ -325,6 +362,14 @@ def cli(
     logging.basicConfig(handlers=log_handlers, level=log_level,
                         format='%(message)s')
 
+    if pids:
+        pids = [pid.strip() for pid in pids.split(',')]
+        pids.sort()
+    elif pids_file:
+        with open(pids_file) as f:
+            pids = [line.strip() for line in f if line.strip()]
+        pids.sort()
+
     process(
         ifcb_data_dir=ifcb_data_dir,
         features_output_dir=features_output_dir,
@@ -332,8 +377,10 @@ def cli(
         model_id=model_id,
         class_path=class_path,
         dask_priority=dask_priority,
+        pids=pids,
         start_date=start_date,
         end_date=end_date,
+        date_dirs=date_dirs,
         extract_images=extract_images,
         classify_images=classify_images,
         force=force,
