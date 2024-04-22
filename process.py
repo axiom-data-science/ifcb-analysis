@@ -1,25 +1,27 @@
 #!python
 """Load bin, extract features, create blob image, classify samples, and write to disk."""
-import logging
-import os
-from pathlib import Path
-from zipfile import ZipFile
-import gc
+from __future__ import annotations
 
 import click
+import gc
 import h5py as h5
 import ifcb
+import logging
 import numpy as np
+import os
 import pandas as pd
+import warnings
+
 from contextlib import nullcontext
+from datetime import datetime, timedelta
 from ifcb.data.imageio import format_image
-from ifcb_features import classify, compute_features
+from pathlib import Path
+from src.python.ifcb_analysis import classify, compute_features
+from zipfile import ZipFile
 from PIL import Image
 
-import pandas as pd
-
-import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
+
 
 def process_bin(
     file: Path,
@@ -185,32 +187,158 @@ def predictions2h5(model_config: classify.KerasModelConfig, outfile: Path, predi
         f.create_dataset('roi_numbers', data=features['roi_number'], compression='gzip', dtype='uint16')
 
 
+def available_bins(ifcb_data_dir: Path, start_date: datetime, end_date: datetime) -> List[Path]:
+    """Given path to data return list of bins available, optionally using start and end date to discover"""
+    if start_date and end_date:
+        ndays = (end_date - start_date).days
+        dates = [start_date + timedelta(days=i) for i in range(ndays)]
+
+        bins = []
+        for date in dates:
+            day_dir = ifcb_data_dir / f'{date.year}/D{date.year}{date.month:02d}{date.day:02d}'
+            if not day_dir.exists():
+                continue
+
+            daily_bins = list(day_dir.glob('*.adc'))
+            daily_bins.sort()
+            logging.debug(f'Adding {daily_bins} to available bins')
+            bins += daily_bins
+
+        return bins
+    else:
+        # just scan recursively for *.adc if start and end date weren't provided
+        bins = list(ifcb_data_dir.rglob('*.adc'))
+        bins.sort()
+        return bins
+
+
+def output_path(features_output_dir: Path, bin: Path) -> Path:
+    """Given output dir and bin name, create path for output file following canonical naming."""
+    bin = str(bin.name)
+    # DYYYYmmddTHHMMSS_<ifcb-name>.adc
+    # lid: DYYYYmmddTHHMMSS
+    lid, ifcb = bin.split('.')[0].split('_')
+    year = bin[1:5]
+    date = lid[:9]
+
+    return features_output_dir / year / date
+
+
+def process(
+    ifcb_data_dir: Path,
+    features_output_dir: Path,
+    model_path: Path,
+    model_id: str,
+    class_path: Path,
+    dask_priority: int,
+    start_date: datetime | None = None,
+    end_date: datetime | None = None,
+    extract_images: bool = True,
+    classify_images: bool = True,
+    force: bool = False,
+    use_dask: bool = True
+):
+    """Process bins between start and end dates."""
+    logging.info(f'Processing IFCB data in {ifcb_data_dir} from {start_date} to {end_date}')
+    logging.info(f'Writing features to {features_output_dir}')
+
+    model_config = classify.KerasModelConfig(model_path=model_path, class_path=class_path, model_id=model_id)
+    bins = available_bins(ifcb_data_dir, start_date, end_date)
+
+    if use_dask and classify_images:
+        logging.info('Classification is not supported by the Dask cluster. Running serially instead.')
+        use_dask = False
+
+    if use_dask:
+        import dask
+        from dask.distributed import Client, fire_and_forget
+
+        with Client(os.environ['DASK_CLUSTER']) as client:
+
+            outdirs = [output_path(features_output_dir, bin) for bin in bins]
+            args = [
+                bins,
+                outdirs,
+                [model_config] * len(bins),
+                [extract_images] * len(bins),
+                [classify_images] * len(bins),
+                [force] * len(bins)
+            ]
+            futures = client.map(
+                process_bin,
+                *args,
+                priority=dask_priority
+            )
+            fire_and_forget(futures)
+
+    else:
+        num_bins = len(bins)
+        for ix, bin in enumerate(bins):
+            if num_bins <= 500 or ix % 100 == 0:
+                percent_complete = (ix/float(num_bins)) * 100
+                logging.info(f'Progress: {percent_complete:.1f}% {ix}/{num_bins} ({bin})')
+
+            outdir = output_path(features_output_dir, bin)
+            try:
+                process_bin(bin, outdir, model_config, extract_images, classify_images, force)
+            except Exception as e:
+                logging.error(f'Error processing {bin}: {e}')
+
+
 @click.command()
 @click.option('--extract-images/--no-extract-images', default=True)
 @click.option('--classify-images/--no-classify-images', default=True)
 @click.option('--force/--no-force', default=False)
+@click.option('--log-level', default='INFO')
 @click.option('--log-file', type=click.Path(writable=True, dir_okay=False))
-@click.argument('input_dir', type=click.Path(exists=True))
-@click.argument('output_dir', type=click.Path(exists=True))
+@click.option('--use-dask/--no-use-dask', default=os.getenv('DASK_CLUSTER') is not None)
+@click.option('--dask-priority', type=click.INT, default=0)
+@click.option('--start-date', type=click.DateTime(formats=['%Y-%m-%d']))
+@click.option('--end-date', type=click.DateTime(formats=['%Y-%m-%d']))
+@click.argument('ifcb_data_dir', type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.argument('features_output_dir', type=click.Path(exists=True, file_okay=False, path_type=Path))
 @click.argument('model_path', type=click.Path(exists=True))
-@click.argument('class_path', type=click.Path(exists=True))
-@click.argument('model_id', type=str)
-def cli(extract_images: bool, classify_images: bool, force: bool, input_dir: Path, output_dir: Path,
-        model_path: Path, class_path: Path, log_file: Path, model_id: str):
-    """Process all files in input_dir and write results to output_dir."""
+@click.argument('model_id', type=click.STRING)
+@click.argument('class_path', type=click.Path(exists=True, dir_okay=False))
+def cli(
+    extract_images: bool,
+    classify_images: bool,
+    force: bool,
+    log_level: str,
+    log_file: Path,
+    ifcb_data_dir: Path,
+    features_output_dir: Path,
+    model_path: Path,
+    model_id: str,
+    class_path: Path,
+    start_date: datetime,
+    end_date: datetime,
+    use_dask: bool,
+    dask_priority: int,
+):
+    """Process bins between start and end dates."""
 
+    # set up logging (stdout, plug log file if path provided)
     log_handlers = [logging.StreamHandler()]
     if (log_file):
         log_handlers.append(logging.FileHandler(log_file))
-    logging.basicConfig(handlers=log_handlers, level=logging.DEBUG)
+    logging.basicConfig(handlers=log_handlers, level=log_level,
+                        format='%(message)s')
 
-    input_dir = Path(input_dir)
-    output_dir = Path(output_dir)
-
-    model_config = classify.KerasModelConfig(model_path=model_path, class_path=class_path, model_id=model_id)
-    for file in input_dir.glob('*.adc'):
-        process_bin(file, output_dir, model_config, extract_images, classify_images, force)
-
+    process(
+        ifcb_data_dir=ifcb_data_dir,
+        features_output_dir=features_output_dir,
+        model_path=model_path,
+        model_id=model_id,
+        class_path=class_path,
+        dask_priority=dask_priority,
+        start_date=start_date,
+        end_date=end_date,
+        extract_images=extract_images,
+        classify_images=classify_images,
+        force=force,
+        use_dask=use_dask,
+    )
 
 if __name__ == '__main__':
-   cli()
+    cli()

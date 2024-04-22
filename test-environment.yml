@@ -1,9 +1,0 @@
-name: ifcb-analysis
-channels:
-- conda-forge
-- defaults
-dependencies:
-- isort
-- flake8
-- black
-- pytest

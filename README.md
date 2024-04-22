@@ -4,28 +4,10 @@
 
 ### Set up environment
 
-Make sure you have `fftw3-dev` installed for computing Fourier transforms. On Debian-based OSes:
-
-```sh
-sudo apt install fftw3-dev
 ```
-
-Build `conda` environment:
-
-```sh
-conda env create
-```
-
-Install testing dependencies with:
-
-```sh
-conda env update -f test-environment.yml
-```
-
-Set environment variable so Tensorflow knows where to look for things:
-
-```sh
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_PREFIX/lib/
+conda create -yf environment.yml
+conda activate ifcb-analysis
+./fix-tensorrt-libs.sh
 ```
 
 ### Run tests

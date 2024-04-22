@@ -7,7 +7,7 @@ from scipy import stats
 from skimage.measure import regionprops
 
 from .morphology import find_perimeter
-from .random import simple_prng
+from .random_generator import simple_prng
 
 def hist_stats(arr):
     """returns mean, median, skewness, and kurtosis"""

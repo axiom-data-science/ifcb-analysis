@@ -4,17 +4,6 @@ channels:
   - defaults
 dependencies:
   - python=3.9
-  - numpy>=1.16
-  - pandas
-  - scikit-image
-  - scipy>=1.4
-  - cudatoolkit=11.2
-  - cudnn=8.1.0
-  - click
   - pip
   - pip:
-    - tensorflow[and-cuda]==2.16.1
-    - protobuf==3.20.3
-    - pyfftw>=0.13.0
-    - phasepack
-    - git+https://github.com/joefutrelle/pyifcb.git
+    - -r requirements.txt
