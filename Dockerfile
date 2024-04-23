@@ -1,25 +1,24 @@
-FROM mambaorg/micromamba:1.5.8
+# NOTE: nvidia drivers and container-toolkit must be installed on the Docker host
+# *all* other dependencies are installed in the container using pip
+# https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html
+FROM python:3.9
 
-USER root
-
-RUN apt-get update && apt-get install -y git procps \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN mkdir /srv/ifcb-analysis && chown $MAMBA_USER:$MAMBA_USER /srv/ifcb-analysis
+RUN useradd --create-home --home-dir=/srv/ifcb-analysis ifcb
 
 WORKDIR /srv/ifcb-analysis
 
-USER $MABMA_UESR
+COPY requirements.txt .
 
-COPY --chown=$MAMBA_USER:$MAMBA_USER environment.yml requirements.txt /tmp/
+RUN pip install -r requirements.txt
 
-RUN micromamba install -y -n base -f /tmp/environment.yml && \
-    micromamba clean --all --yes
-
-COPY . .
-
-ARG MAMBA_DOCKERFILE_ACTIVATE=1
+COPY fix-tensorrt-libs.sh .
 
 RUN ./fix-tensorrt-libs.sh
 
-ENTRYPOINT ["/usr/local/bin/_entrypoint.sh", "python", "./process.py"]
+COPY . .
+
+RUN pip install .
+
+USER ifcb
+
+ENTRYPOINT ["process-bins"]

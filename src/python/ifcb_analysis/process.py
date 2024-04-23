@@ -16,7 +16,7 @@ from contextlib import nullcontext
 from datetime import datetime, timedelta
 from ifcb.data.imageio import format_image
 from pathlib import Path
-from src.python.ifcb_analysis import classify, compute_features
+from ifcb_analysis import classify, compute_features
 from zipfile import ZipFile
 from PIL import Image
 
