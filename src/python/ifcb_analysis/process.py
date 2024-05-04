@@ -14,6 +14,7 @@ import warnings
 
 from contextlib import nullcontext
 from datetime import datetime, timedelta
+from dask.distributed import get_worker
 from ifcb.data.imageio import format_image
 from pathlib import Path
 from ifcb_analysis import classify, compute_features
@@ -29,8 +30,20 @@ def process_bin(
     model_config: classify.KerasModelConfig,
     extract_images: bool = True,
     classify_images: bool = True,
-    force: bool = False
+    force: bool = False,
+    dask_log_path: str = None,
+    dask_log_level: int = None,
 ):
+    # set up to log to a file if this is a dask worker
+    if dask_log_path and dask_log_level:
+        try:
+            dask_worker = get_worker()
+            if dask_worker:
+                logging.basicConfig(filename=f'{dask_log_path}/ifcb-analysis-{dask_worker.id}.log', level=dask_log_level,
+                                    format='%(asctime)s %(message)s')
+        except ValueError:
+            pass
+
     if not outdir.exists():
         # Due to race conditions when a job is concurrently processing bins
         # from the same, date mkdir will occasionally fail if the directory
@@ -89,7 +102,7 @@ def process_bin(
         num_images = len(bin.images)
         for ix, roi_number in enumerate(bin.images):
             if ix % 100 == 0:
-                logging.info(f'Processing ROI {roi_number} ({ix + 1}/{num_images})')
+                logging.info(f'Processing {bin.pid} ROI {roi_number} ({ix + 1}/{num_images})')
             try:
                 # Select image
                 image = bin.images[roi_number]
@@ -128,29 +141,30 @@ def process_bin(
 
     # Save features dataframe
     # - Empty features indicates no samples, so remaining steps are skipped
-    if features_df is not None:
-        #only save features to disk if we're extracting, otherwise we loaded
-        #these features from this existing file above
-        if extract_images:
-            logging.info(f'Saving features to {features_fname}')
-            features_df.to_csv(features_fname, index=False, float_format='%.6f')
-
-        if classify_images:
-            logging.info(f'Classifying images and saving to {class_fname}')
-            predictions_df = classify.predict(model_config, image_stack)
-
-            # Since classify.predict (which calls Model.predict) is run in a for loop, memory consumption
-            # will build up and result in an OOM error, so we excplicitly clear it out after each model run.
-            gc.collect()
-
-            # Save predictions to h5
-            predictions2h5(model_config, class_fname, predictions_df, bin.lid, features_df)
-
-        else:
-            logging.info('Classification turned off, skipping')
-
-    else:
+    if features_df is None:
         logging.info(f'No features found in {file}. Skipping classification.')
+        # TODO should a flag file be written to indicate to future classify-only runs
+        # that this bin had no features? currently this case errors when we
+        # attempt to load a features data frame file that doesn't exist
+        return
+
+    #only save features to disk if we're extracting, otherwise we loaded
+    #these features from this existing file above
+    if extract_images:
+        logging.info(f'Saving features to {features_fname}')
+        features_df.to_csv(features_fname, index=False, float_format='%.6f')
+
+    if classify_images:
+        logging.info(f'Classifying images and saving to {class_fname}')
+        predictions_df = classify.predict(model_config, image_stack)
+
+        # Since classify.predict (which calls Model.predict) is run in a for loop, memory consumption
+        # will build up and result in an OOM error, so we excplicitly clear it out after each model run.
+        gc.collect()
+
+        # Save predictions to h5
+        predictions2h5(model_config, class_fname, predictions_df, bin.lid, features_df)
+
 
 def blob2bytes(blob_img: np.ndarray) -> bytes:
     """Format blob as image to be written in zip file."""
@@ -200,7 +214,10 @@ def available_bins(ifcb_data_dir: Path, pids: List[str], start_date: datetime, e
                 bins.append(date_dir_adc)
             else:
                 logging.warn(f'No matches found for specified pid {pid}')
-    elif start_date and end_date:
+    elif start_date:
+        if not end_date:
+            end_date = datetime.now()
+
         ndays = (end_date - start_date).days
         dates = [start_date + timedelta(days=i) for i in range(ndays)]
 
@@ -252,7 +269,9 @@ def process(
     extract_images: bool = True,
     classify_images: bool = True,
     force: bool = False,
-    use_dask: bool = True
+    use_dask: bool = True,
+    dask_log_path: str = None,
+    dask_log_level: int = None,
 ):
     """Process bins."""
     logging.info(f'Processing IFCB data in {ifcb_data_dir}')
@@ -263,7 +282,7 @@ def process(
         else:
             logging.info(f'{len(pids)} pids, first {pids[0]}, last {pids[-1]}')
     if start_date or end_date:
-        logging.info(f'Start date {start_date}, end date {end_date}')
+        logging.info(f'Start date {start_date.date() if start_date else None}, end date {end_date.date() if end_date else None}')
 
     model_config = classify.KerasModelConfig(model_path=model_path, class_path=class_path, model_id=model_id)
     bins = available_bins(ifcb_data_dir=ifcb_data_dir, pids=pids, start_date=start_date, end_date=end_date)
@@ -291,6 +310,11 @@ def process(
                 [classify_images] * len(bins),
                 [force] * len(bins)
             ]
+
+            if dask_log_path and dask_log_level:
+                args.append([dask_log_path] * len(bins))
+                args.append([dask_log_level] * len(bins))
+
             futures = client.map(
                 process_bin,
                 *args,
@@ -324,6 +348,7 @@ def process(
 @click.option('--log-file', type=click.Path(writable=True, dir_okay=False))
 @click.option('--use-dask/--no-use-dask', default=os.getenv('DASK_CLUSTER') is not None)
 @click.option('--dask-priority', type=click.INT, default=0)
+@click.option('--dask-log-path', type=click.STRING, default='/tmp/ifcb-analysis-logs')
 @click.option('--pids', '--pid', type=click.STRING)
 @click.option('--pids-file', '--pid-file', type=click.Path(dir_okay=False))
 @click.option('--start-date', type=click.DateTime(formats=['%Y-%m-%d']))
@@ -342,6 +367,7 @@ def cli(
     log_file: Path,
     use_dask: bool,
     dask_priority: int,
+    dask_log_path: str,
     pids: str,
     pids_file: str,
     start_date: datetime,
@@ -357,7 +383,7 @@ def cli(
 
     # set up logging (stdout, plug log file if path provided)
     log_handlers = [logging.StreamHandler()]
-    if (log_file):
+    if log_file:
         log_handlers.append(logging.FileHandler(log_file))
     logging.basicConfig(handlers=log_handlers, level=log_level,
                         format='%(message)s')
@@ -385,6 +411,8 @@ def cli(
         classify_images=classify_images,
         force=force,
         use_dask=use_dask,
+        dask_log_path=dask_log_path,
+        dask_log_level=log_level,
     )
 
 if __name__ == '__main__':
