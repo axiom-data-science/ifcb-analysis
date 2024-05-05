@@ -112,6 +112,11 @@ CUDA_VISIBLE_DEVICES=2,3 pytest
 
 ## Docker
 
+To run classification in Docker, nvidia drivers and container-toolkit
+must be installed on the Docker *host*.
+*All* other dependencies are managed/installed in the container using pip.
+https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html
+
 Build
 
 ```
