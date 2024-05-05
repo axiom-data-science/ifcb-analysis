@@ -249,15 +249,15 @@ def date_dir(pid: str) -> str:
     return f'{pid[1:5]}/{pid[:9]}'
 
 
-def output_path(features_output_dir: Path, bin: Path) -> Path:
+def date_output_dir(output_dir: Path, bin: Path) -> Path:
     """Given output dir and bin name, create path for output file following canonical naming."""
     # DYYYYmmddTHHMMSS_<ifcb-name>.adc
-    return features_output_dir / date_dir(bin.name)
+    return output_dir / date_dir(bin.name)
 
 
 def process(
     ifcb_data_dir: Path,
-    features_output_dir: Path,
+    output_dir: Path,
     model_path: Path,
     model_id: str,
     class_path: Path,
@@ -275,7 +275,7 @@ def process(
 ):
     """Process bins."""
     logging.info(f'Processing IFCB data in {ifcb_data_dir}')
-    logging.info(f'Writing output to {features_output_dir}')
+    logging.info(f'Writing output to {output_dir}')
     if pids:
         if len(pids) <= 10:
             logging.info(f'pids: {pids}')
@@ -283,6 +283,9 @@ def process(
             logging.info(f'{len(pids)} pids, first {pids[0]}, last {pids[-1]}')
     if start_date or end_date:
         logging.info(f'Start date {start_date.date() if start_date else None}, end date {end_date.date() if end_date else None}')
+
+    # create output dir if needed
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     model_config = classify.KerasModelConfig(model_path=model_path, class_path=class_path, model_id=model_id)
     bins = available_bins(ifcb_data_dir=ifcb_data_dir, pids=pids, start_date=start_date, end_date=end_date)
@@ -298,9 +301,9 @@ def process(
         with Client(os.environ['DASK_CLUSTER']) as client:
 
             if date_dirs:
-                outdirs = [output_path(features_output_dir, bin) for bin in bins]
+                outdirs = [date_output_dir(output_dir, bin) for bin in bins]
             else:
-                outdirs = features_output_dir * len(bins)
+                outdirs = output_dir * len(bins)
 
             args = [
                 bins,
@@ -330,9 +333,9 @@ def process(
                 logging.info(f'Progress: {percent_complete:.1f}% {ix}/{num_bins} ({bin})')
 
             if date_dirs:
-                outdir = output_path(features_output_dir, bin)
+                outdir = date_output_dir(output_dir, bin)
             else:
-                outdir = features_output_dir
+                outdir = output_dir
 
             try:
                 process_bin(bin, outdir, model_config, extract_images, classify_images, force)
@@ -355,7 +358,7 @@ def process(
 @click.option('--end-date', type=click.DateTime(formats=['%Y-%m-%d']))
 @click.option('--date-dirs/--no-date-dirs', default=True)
 @click.argument('ifcb_data_dir', type=click.Path(exists=True, file_okay=False, path_type=Path))
-@click.argument('features_output_dir', type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.argument('output_dir', type=click.Path(file_okay=False, path_type=Path))
 @click.argument('model_path', type=click.Path(exists=True))
 @click.argument('model_id', type=click.STRING)
 @click.argument('class_path', type=click.Path(exists=True, dir_okay=False))
@@ -374,7 +377,7 @@ def cli(
     end_date: datetime,
     date_dirs: bool,
     ifcb_data_dir: Path,
-    features_output_dir: Path,
+    output_dir: Path,
     model_path: Path,
     model_id: str,
     class_path: Path,
@@ -398,7 +401,7 @@ def cli(
 
     process(
         ifcb_data_dir=ifcb_data_dir,
-        features_output_dir=features_output_dir,
+        output_dir=output_dir,
         model_path=model_path,
         model_id=model_id,
         class_path=class_path,
