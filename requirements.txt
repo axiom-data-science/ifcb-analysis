@@ -1,0 +1,15 @@
+--extra-index-url https://pypi.nvidia.com
+bokeh
+click
+cython
+dask[distributed]
+numpy
+pandas
+phasepack
+protobuf
+pyfftw
+git+https://github.com/joefutrelle/pyifcb.git@v1.0.0
+scikit-image
+scipy
+tensorrt
+tensorflow[and-cuda]>=2.15,<2.16

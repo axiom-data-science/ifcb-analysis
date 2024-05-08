@@ -5,24 +5,33 @@ from pathlib import Path
 import ifcb
 import numpy as np
 import pandas as pd
+import pytest
 import tensorflow as tf
 from click.testing import CliRunner
-from ifcb_features import classify, compute_features
-from ifcb_features.scripts.process_bins import cli
+from ifcb_analysis import classify, compute_features
+from ifcb_analysis.process import cli
 from PIL import Image
 
 
 class TestFeatures:
-
     basedir = Path(__file__).parent / 'data'
+    output_dir = basedir / 'output'
+    reference_dir = basedir / 'reference'
     adc_file = basedir / 'D20141117T234033_IFCB102.adc'
     hdf_file = basedir / 'D20141117T234033_IFCB102.hdf'
     roi_file = basedir / 'D20141117T234033_IFCB102.roi'
     model_path = basedir / 'phytoClassUCSC' / 'phytoClassUCSC.h5'
     classes_path = basedir / 'phytoClassUCSC' / 'class_list.json'
-    reference_blobs = basedir / 'reference' / 'D20141117T234033_IFCB102_blobs_v2.zip'
-    reference_classes = basedir / 'reference' / 'D20141117T234033_IFCB102_class.h5'
-    reference_features = basedir / 'reference' / 'D20141117T234033_IFCB102_fea_v2.csv'
+    blobs_filename = 'D20141117T234033_IFCB102_blobs_v2.zip'
+    classes_filename = 'D20141117T234033_IFCB102_class.h5'
+    features_filename = 'D20141117T234033_IFCB102_fea_v2.csv'
+    output_blobs = output_dir / blobs_filename
+    output_features = output_dir / features_filename
+    output_classes = output_dir / classes_filename
+    reference_blobs = reference_dir / blobs_filename
+    reference_features = reference_dir / features_filename
+    reference_classes = reference_dir / classes_filename
+
 
     def _pack_df(self, features, roi):
         cols, values = zip(*features)
@@ -33,6 +42,38 @@ class TestFeatures:
             {c: v for c, v in zip(cols, values)},
             columns=cols
         )
+
+
+    def _cli_opts(self, *opts):
+        return list(opts) + [
+            '--no-date-dirs',
+            str(self.basedir),
+            str(self.output_dir),
+            str(self.model_path),
+            'test',
+            str(self.classes_path),
+        ]
+
+
+    def run_cli(self, *opts):
+        runner = CliRunner()
+        result = runner.invoke(cli, self._cli_opts(*opts))
+        print(result.output)
+        assert result.exit_code == 0
+
+
+    def _clean_output_files(self):
+        for f in [self.output_features, self.output_blobs, self.output_classes]:
+            f.unlink(missing_ok=True)
+
+
+    @pytest.fixture(autouse=True)
+    def test_cleanup(self):
+        # clean up output files before and after running each test
+        self._clean_output_files()
+        yield
+        self._clean_output_files()
+        
 
     def test_process_image(self):
         # Give ADC file
@@ -57,7 +98,7 @@ class TestFeatures:
         # Check features and blob
         blob_img, features = compute_features(bin.images[ROI])
         assert np.sum(blob_img) == 389
-        assert blob_img.dtype == np.bool8
+        assert blob_img.dtype == bool
         assert blob_img.shape == IMG_SHAPE
 
         df = self._pack_df(features, ROI)
@@ -84,100 +125,31 @@ class TestFeatures:
         assert predictions_df.iloc[0].argmax() == 29
 
     def test_script(self):
-        runner = CliRunner()
-        result = runner.invoke(cli, [str(self.basedir), str(self.basedir), str(self.model_path), str(self.classes_path), 'test'])
-        features_file = self.basedir / 'D20141117T234033_IFCB102_fea_v2.csv'
-        classes_file = self.basedir / 'D20141117T234033_IFCB102_class.h5'
-        blob_file = self.basedir / 'D20141117T234033_IFCB102_blobs_v2.zip'
-
-        assert result.exit_code == 0
-        assert filecmp.cmp(self.reference_features, features_file)
-        assert self.reference_classes.stat().st_size == classes_file.stat().st_size
-        assert self.reference_blobs.stat().st_size == blob_file.stat().st_size
-
-        if result.exit_code == 0:
-            os.remove(str(self.basedir / 'D20141117T234033_IFCB102_fea_v2.csv'))
-            os.remove(str(self.basedir / 'D20141117T234033_IFCB102_class.h5'))
-            os.remove(str(self.basedir / 'D20141117T234033_IFCB102_blobs_v2.zip'))
+        self.run_cli()
+        assert filecmp.cmp(self.reference_features, self.output_features)
+        assert self.reference_classes.stat().st_size == self.output_classes.stat().st_size
+        assert self.reference_blobs.stat().st_size == self.output_blobs.stat().st_size
 
     def test_script_no_classify(self):
-        runner = CliRunner()
-        result = runner.invoke(cli, ['--no-classify-images', str(self.basedir), str(self.basedir), str(self.model_path), str(self.classes_path), 'test'])
-        features_file = self.basedir / 'D20141117T234033_IFCB102_fea_v2.csv'
-        classes_file = self.basedir / 'D20141117T234033_IFCB102_class.h5'
-        blob_file = self.basedir / 'D20141117T234033_IFCB102_blobs_v2.zip'
-
-        assert result.exit_code == 0
-        assert filecmp.cmp(self.reference_features, features_file)
-        assert not classes_file.exists()
-        assert self.reference_blobs.stat().st_size == blob_file.stat().st_size
-
-        if result.exit_code == 0:
-            os.remove(str(self.basedir / 'D20141117T234033_IFCB102_fea_v2.csv'))
-            os.remove(str(self.basedir / 'D20141117T234033_IFCB102_blobs_v2.zip'))
+        self.run_cli('--no-classify-images')
+        assert filecmp.cmp(self.reference_features, self.output_features)
+        assert not self.output_classes.exists()
+        assert self.reference_blobs.stat().st_size == self.output_blobs.stat().st_size
 
     def test_script_no_force(self):
-        features_file = self.basedir / 'D20141117T234033_IFCB102_fea_v2.csv'
-        classes_file = self.basedir / 'D20141117T234033_IFCB102_class.h5'
-        blob_file = self.basedir / 'D20141117T234033_IFCB102_blobs_v2.zip'
-
-        features_file.touch()
-        classes_file.touch()
-        blob_file.touch()
-
-        runner = CliRunner()
-        result = runner.invoke(cli, [str(self.basedir), str(self.basedir), str(self.model_path), str(self.classes_path), 'test'])
-
-        assert result.exit_code == 0
-        assert not filecmp.cmp(self.reference_features, features_file)
-        assert not self.reference_classes.stat().st_size == classes_file.stat().st_size
-        assert not self.reference_blobs.stat().st_size == blob_file.stat().st_size
-
-        if result.exit_code == 0:
-            os.remove(str(self.basedir / 'D20141117T234033_IFCB102_fea_v2.csv'))
-            os.remove(str(self.basedir / 'D20141117T234033_IFCB102_class.h5'))
-            os.remove(str(self.basedir / 'D20141117T234033_IFCB102_blobs_v2.zip'))
-
-    def test_script_no_force_missing(self):
-        features_file = self.basedir / 'D20141117T234033_IFCB102_fea_v2.csv'
-        classes_file = self.basedir / 'D20141117T234033_IFCB102_class.h5'
-        blob_file = self.basedir / 'D20141117T234033_IFCB102_blobs_v2.zip'
-
-        features_file.touch()
-        classes_file.touch()
-        blob_file.touch()
-
-        runner = CliRunner()
-        result = runner.invoke(cli, [str(self.basedir), str(self.basedir), str(self.model_path), str(self.classes_path), 'test'])
-
-        assert result.exit_code == 0
-        assert not filecmp.cmp(self.reference_features, features_file)
-        assert not self.reference_classes.stat().st_size == classes_file.stat().st_size
-        assert not self.reference_blobs.stat().st_size == blob_file.stat().st_size
-
-        if result.exit_code == 0:
-            os.remove(str(self.basedir / 'D20141117T234033_IFCB102_fea_v2.csv'))
-            os.remove(str(self.basedir / 'D20141117T234033_IFCB102_class.h5'))
-            os.remove(str(self.basedir / 'D20141117T234033_IFCB102_blobs_v2.zip'))
+        self.output_features.touch()
+        self.output_blobs.touch()
+        self.output_classes.touch()
+        self.run_cli()
+        assert not filecmp.cmp(self.reference_features, self.output_features)
+        assert not self.reference_classes.stat().st_size == self.output_classes.stat().st_size
+        assert not self.reference_blobs.stat().st_size == self.output_blobs.stat().st_size
 
     def test_script_force(self):
-        features_file = self.basedir / 'D20141117T234033_IFCB102_fea_v2.csv'
-        classes_file = self.basedir / 'D20141117T234033_IFCB102_class.h5'
-        blob_file = self.basedir / 'D20141117T234033_IFCB102_blobs_v2.zip'
-
-        features_file.touch()
-        classes_file.touch()
-        blob_file.touch()
-
-        runner = CliRunner()
-        result = runner.invoke(cli, ['--force', str(self.basedir), str(self.basedir), str(self.model_path), str(self.classes_path), 'test'])
-
-        assert result.exit_code == 0
-        assert filecmp.cmp(self.reference_features, features_file)
-        assert self.reference_classes.stat().st_size == classes_file.stat().st_size
-        assert self.reference_blobs.stat().st_size == blob_file.stat().st_size
-
-        if result.exit_code == 0:
-            os.remove(str(self.basedir / 'D20141117T234033_IFCB102_fea_v2.csv'))
-            os.remove(str(self.basedir / 'D20141117T234033_IFCB102_class.h5'))
-            os.remove(str(self.basedir / 'D20141117T234033_IFCB102_blobs_v2.zip'))
+        self.output_features.touch()
+        self.output_classes.touch()
+        self.output_blobs.touch()
+        self.run_cli('--force')
+        assert filecmp.cmp(self.reference_features, self.output_features)
+        assert self.reference_classes.stat().st_size == self.output_classes.stat().st_size
+        assert self.reference_blobs.stat().st_size == self.output_blobs.stat().st_size
