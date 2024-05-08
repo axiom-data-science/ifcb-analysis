@@ -1,7 +1,7 @@
 # ifcb-analysis
 
 Python based IFCB feature extraction and classification toolkit,
-adapter from [Dr Heidi Sosik](https://github.com/hsosik)'s
+adapted from [Dr Heidi Sosik](https://github.com/hsosik)'s
 [ifcb-analysis](https://github.com/hsosik/ifcb-analysis)
 (MATLAB). Original python port by [Dr Jesse Lopez](https://github.com/yosoyjay).
 
@@ -14,7 +14,7 @@ CNN model.
 ### Set up environment
 
 ```
-conda create -yf environment.yml
+conda env create -yf environment.yml
 conda activate ifcb-analysis
 ./fix-tensorrt-libs.sh
 ```
@@ -89,7 +89,14 @@ This requires classification to be run in a separate phase using
 
 ### Run tests
 
-To run tests you'll need the phytoClassUCSC model.
+To run tests, first install testing dependencies.
+
+```
+conda activate ifcb-analysis
+pip install -r test-requirements.txt
+```
+
+You'll also need the phytoClassUCSC model.
 
 ```
 git clone https://huggingface.co/patcdaniel/phytoClassUCSC src/python/tests/data/phytoClassUCSC
