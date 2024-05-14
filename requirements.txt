@@ -8,6 +8,7 @@ pandas
 phasepack
 protobuf
 pyfftw
+pyyaml
 git+https://github.com/joefutrelle/pyifcb.git@v1.0.0
 scikit-image
 scipy

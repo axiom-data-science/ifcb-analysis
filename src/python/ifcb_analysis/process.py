@@ -11,6 +11,7 @@ import numpy as np
 import os
 import pandas as pd
 import warnings
+import yaml
 
 from contextlib import nullcontext
 from datetime import datetime, timedelta
@@ -343,6 +344,13 @@ def process(
                 logging.error(f'Error processing {bin}: {e}')
 
 
+def yaml_config_callback(ctx, param, value):
+    # load config from yaml file if provided
+    if value:
+        with open(value) as f:
+            ctx.default_map = yaml.safe_load(f)
+
+
 @click.command()
 @click.option('--extract-images/--no-extract-images', default=True)
 @click.option('--classify-images/--no-classify-images', default=True)
@@ -357,12 +365,15 @@ def process(
 @click.option('--start-date', type=click.DateTime(formats=['%Y-%m-%d']))
 @click.option('--end-date', type=click.DateTime(formats=['%Y-%m-%d']))
 @click.option('--date-dirs/--no-date-dirs', default=True)
+@click.option('--config', type=click.Path(exists=True, dir_okay=False), callback=yaml_config_callback, is_eager=True)
 @click.argument('ifcb_data_dir', type=click.Path(exists=True, file_okay=False, path_type=Path))
 @click.argument('output_dir', type=click.Path(file_okay=False, path_type=Path))
 @click.argument('model_path', type=click.Path(exists=True))
 @click.argument('model_id', type=click.STRING)
 @click.argument('class_path', type=click.Path(exists=True, dir_okay=False))
+@click.pass_context
 def cli(
+    ctx,
     extract_images: bool,
     classify_images: bool,
     force: bool,
@@ -376,6 +387,7 @@ def cli(
     start_date: datetime,
     end_date: datetime,
     date_dirs: bool,
+    config: Path,
     ifcb_data_dir: Path,
     output_dir: Path,
     model_path: Path,

@@ -17,7 +17,7 @@ RUN ./fix-tensorrt-libs.sh
 
 COPY . .
 
-RUN pip install .
+RUN pip install --no-dependencies .
 
 USER ifcb
 
