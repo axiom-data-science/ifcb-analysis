@@ -201,7 +201,7 @@ def predictions2h5(model_config: classify.KerasModelConfig, outfile: Path, predi
         f.create_dataset('roi_numbers', data=features['roi_number'], compression='gzip', dtype='uint16')
 
 
-def available_bins(ifcb_data_dir: Path, pids: List[str], start_date: datetime, end_date: datetime) -> List[Path]:
+def available_bins(ifcb_data_dir: Path, pids: List[str], start_date: datetime, end_date: datetime, since_days: int) -> List[Path]:
     """Given path to data return list of bins available, optionally using start and end date to discover"""
     if pids:
         bins = []
@@ -215,9 +215,16 @@ def available_bins(ifcb_data_dir: Path, pids: List[str], start_date: datetime, e
                 bins.append(date_dir_adc)
             else:
                 logging.warn(f'No matches found for specified pid {pid}')
-    elif start_date:
+    elif start_date or since_days:
+        if not start_date:
+            start_date = datetime.now().date() - timedelta(days=since_days)
         if not end_date:
-            end_date = datetime.now()
+            end_date = datetime.now().date()
+
+        if isinstance(start_date, datetime):
+            start_date = start_date.date()
+        if isinstance(end_date, datetime):
+            end_date = end_date.date()
 
         ndays = (end_date - start_date).days
         dates = [start_date + timedelta(days=i) for i in range(ndays)]
@@ -266,6 +273,7 @@ def process(
     pids: List[str] | None = None,
     start_date: datetime | None = None,
     end_date: datetime | None = None,
+    since_days: int = None,
     date_dirs: bool = True,
     extract_images: bool = True,
     classify_images: bool = True,
@@ -289,7 +297,7 @@ def process(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     model_config = classify.KerasModelConfig(model_path=model_path, class_path=class_path, model_id=model_id)
-    bins = available_bins(ifcb_data_dir=ifcb_data_dir, pids=pids, start_date=start_date, end_date=end_date)
+    bins = available_bins(ifcb_data_dir=ifcb_data_dir, pids=pids, start_date=start_date, end_date=end_date, since_days=since_days)
 
     if use_dask and classify_images:
         logging.info('Classification is not supported by the Dask cluster. Running serially instead.')
@@ -364,6 +372,7 @@ def yaml_config_callback(ctx, param, value):
 @click.option('--pids-file', '--pid-file', type=click.Path(dir_okay=False))
 @click.option('--start-date', type=click.DateTime(formats=['%Y-%m-%d']))
 @click.option('--end-date', type=click.DateTime(formats=['%Y-%m-%d']))
+@click.option('--since-days', type=click.INT)
 @click.option('--date-dirs/--no-date-dirs', default=True)
 @click.option('--config', type=click.Path(exists=True, dir_okay=False), callback=yaml_config_callback, is_eager=True)
 @click.argument('ifcb_data_dir', type=click.Path(exists=True, file_okay=False, path_type=Path))
@@ -386,6 +395,7 @@ def cli(
     pids_file: str,
     start_date: datetime,
     end_date: datetime,
+    since_days: int,
     date_dirs: bool,
     config: Path,
     ifcb_data_dir: Path,
@@ -421,6 +431,7 @@ def cli(
         pids=pids,
         start_date=start_date,
         end_date=end_date,
+        since_days=since_days,
         date_dirs=date_dirs,
         extract_images=extract_images,
         classify_images=classify_images,
