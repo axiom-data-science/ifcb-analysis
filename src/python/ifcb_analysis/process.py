@@ -11,6 +11,7 @@ import numpy as np
 import os
 import pandas as pd
 import warnings
+import sys
 import yaml
 
 from contextlib import nullcontext
@@ -413,6 +414,9 @@ def cli(
     logging.basicConfig(handlers=log_handlers, level=log_level,
                         format='%(message)s')
 
+    if config:
+        logging.info(f'Processing config {config_yml}')
+
     if pids:
         pids = [pid.strip() for pid in pids.split(',')]
         pids.sort()
@@ -441,5 +445,27 @@ def cli(
         dask_log_level=log_level,
     )
 
+
+def cli_wrapper():
+    # detect --config-dir argument before parsing args, and batch discovered config files if found
+    config_dir = None
+    for i, arg in enumerate(sys.argv):
+        if arg == '--config-dir' and len(sys.argv) > i+1:
+            config_dir = Path(sys.argv[i+1])
+            del sys.argv[i:i+2]
+            break
+
+    if config_dir:
+        if not config_dir.exists():
+            raise ValueError(f'config-dir {config_dir} not found')
+
+        orig_args = sys.argv
+        for config_yml in sorted(config_dir.rglob('*.yml')):
+            sys.argv = orig_args + ['--config', config_yml]
+            cli(standalone_mode=False)
+    else:
+        cli()
+
+
 if __name__ == '__main__':
-    cli()
+    cli_wrapper()
