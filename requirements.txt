@@ -5,6 +5,7 @@ cython
 dask[distributed]
 numpy
 pandas
+prometheus_client
 phasepack
 protobuf
 pyfftw
