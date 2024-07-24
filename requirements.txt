@@ -5,11 +5,13 @@ cython
 dask[distributed]
 numpy
 pandas
+prometheus_client
 phasepack
 protobuf
 pyfftw
 pyyaml
-git+https://github.com/joefutrelle/pyifcb.git@v1.0.0
+# git+https://github.com/joefutrelle/pyifcb.git@v1.0.0
+git+https://github.com/axiom-data-science/pyifcb.git@v1.0.0-lru-cache-to-cached-property-mods
 scikit-image
 scipy
 tensorrt

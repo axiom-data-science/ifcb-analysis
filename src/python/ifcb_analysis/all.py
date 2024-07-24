@@ -1,4 +1,4 @@
-from functools import lru_cache
+from functools import cached_property
 
 import numpy as np
 from scipy.ndimage import find_objects
@@ -38,23 +38,23 @@ class BlobFeatures(object):
     def size(self):
         """h*w of blob image"""
         return self.image.size
-    @property
-    @lru_cache()
+
+    @cached_property
     def regionprops(self):
         """region props of the blob (assumes single connected region)"""
         return regionprops(self.image.astype(np.uint8))[0]
-    @property
-    @lru_cache()
+
+    @cached_property
     def area(self):
         """area of blob"""
         return self.regionprops.area
-    @property
-    @lru_cache()
+
+    @cached_property
     def equiv_diameter(self):
         """equivalent diameter of blob"""
         return self.regionprops.equivalent_diameter
-    @property
-    @lru_cache()
+
+    @cached_property
     def perimeter(self):
         return self.regionprops.perimeter
     @property
@@ -63,100 +63,100 @@ class BlobFeatures(object):
     @property
     def area_over_perimeter(self):
         return self.area / self.perimeter
-    @property
-    @lru_cache()
+
+    @cached_property
     def extent(self):
         """extent of blob"""
         return self.regionprops.extent
-    @property
-    @lru_cache()
+
+    @cached_property
     def convex_hull(self):
         """vertices of convex hull of blob"""
         return convex_hull(self.perimeter_points)
-    @property
-    @lru_cache()
+
+    @cached_property
     def convex_hull_properties(self):
         return convex_hull_properties(self.convex_hull)
-    @property
-    @lru_cache()
+
+    @cached_property
     def convex_perimeter(self):
         """perimeter of convex hull"""
         perimeter, _ = self.convex_hull_properties
         return perimeter
-    @property
-    @lru_cache()
+
+    @cached_property
     def convex_area(self):
         """area of convex hull"""
         _, area = self.convex_hull_properties
         return area
-    @property
-    @lru_cache()
+
+    @cached_property
     def feret_diameter(self):
         return feret_diameter(self.convex_hull)
-    @property
-    @lru_cache()
+
+    @cached_property
     def _feret_diameters(self):
         return feret_diameters(self.convex_hull)
-    @property
-    @lru_cache()
+
+    @cached_property
     def min_feret_diameter(self):
         return self._feret_diameters[0]
-    @property
-    @lru_cache()
+
+    @cached_property
     def max_feret_diameter(self):
         return self._feret_diameters[1]
-    @property
-    @lru_cache()
+
+    @cached_property
     def convex_hull_image(self):
         """convex hull mask"""
         return self.regionprops.convex_image
-    @property
-    @lru_cache()
+
+    @cached_property
     def ellipse_properties(self):
         # maj_axis, min_axis, ecc, orientation
         return ellipse_properties(self.image)
-    @property
-    @lru_cache()
+
+    @cached_property
     def major_axis_length(self):
         """major axis length of blob"""
         return self.ellipse_properties[0]
-    @property
-    @lru_cache()
+
+    @cached_property
     def minor_axis_length(self):
         """minor axis length of blob"""
         return self.ellipse_properties[1]
-    @property
-    @lru_cache()
+
+    @cached_property
     def eccentricity(self):
         """1st eccentricity of blob"""
         return self.ellipse_properties[2]
-    @property
-    @lru_cache()
+
+    @cached_property
     def orientation(self):
         """return orientation of blob in degrees"""
         return (180/np.pi) * self.regionprops.orientation
-    @property
-    @lru_cache()
+
+    @cached_property
     def centroid(self):
         return self.regionprops.centroid
-    @property
-    @lru_cache()
+
+    @cached_property
     def solidity(self):
         """area / convex area of blob"""
         return float(self.area) / self.convex_area
-    @property
-    @lru_cache()
+
+    @cached_property
     def rotated_image(self):
         """blob rotated so major axis is horizontal. may
         not be touching edges of returned image"""
         return rotate_blob(self.image, self.orientation)
-    @property
-    @lru_cache()
+
+    @cached_property
     def rotated_area(self):
         """area of rotated blob"""
         return np.sum(self.rotated_image)
-    @property
-    @lru_cache()
+
+    @cached_property
     def rotated_shape(self):
         """height, width of rotated image's bounding box"""
         return blob_shape(self.rotated_image)
@@ -170,28 +170,28 @@ class BlobFeatures(object):
     def rotated_bbox_solidity(self):
         return self.rotated_area / \
             float(self.rotated_bbox_xwidth * self.rotated_bbox_ywidth)
-    @property
-    @lru_cache()
+
+    @cached_property
     def perimeter_image(self):
         """perimeter of blob defined via erosion and logical and"""
         return find_perimeter(self.image)
-    @property
-    @lru_cache()
+
+    @cached_property
     def perimeter_points(self):
         """points on the perimeter of the blob"""
         return np.where(self.perimeter_image)
-    @property
-    @lru_cache()
+
+    @cached_property
     def distmap_volume_surface_area(self):
         """volume of blob computed via Moberg & Sosik algorithm"""
         return distmap_volume_surface_area(self.image, self.perimeter_image)
-    @property
-    @lru_cache()
+
+    @cached_property
     def sor_volume_surface_area(self):
         """volume of blob computed via solid of revolution method"""
         return sor_volume_surface_area(self.rotated_image)
-    @property
-    @lru_cache()
+
+    @cached_property
     def biovolume_surface_area(self):
         """biovolume and representative transect computed using
         Moberg & Sosik algorithm"""
@@ -201,48 +201,48 @@ class BlobFeatures(object):
             return self.sor_volume_surface_area
         else:
             return self.distmap_volume_surface_area
-    @property
-    @lru_cache()
+
+    @cached_property
     def biovolume(self):
         """biovolume computed using Moberg & Sosik algorithm"""
         return self.biovolume_surface_area[0]
-    @property
-    @lru_cache()
+
+    @cached_property
     def representative_width(self):
         """representative width"""
         return self.biovolume_surface_area[1]
-    @property
-    @lru_cache()
+
+    @cached_property
     def surface_area(self):
         return self.biovolume_surface_area[2]
-    @property
-    @lru_cache()
+
+    @cached_property
     def perimeter_stats(self):
         """mean, median, skewness, kurtosis of pairwise distances
         between each pair of perimeter points"""
         return perimeter_stats(self.perimeter_points, self.equiv_diameter)
-    @property
-    @lru_cache()
+
+    @cached_property
     def perimeter_mean(self):
         """mean of pairwise distances between perimeter points"""
         return self.perimeter_stats[0]
-    @property
-    @lru_cache()
+
+    @cached_property
     def perimeter_median(self):
         """median of pairwise distances between perimeter points"""
         return self.perimeter_stats[1]
-    @property
-    @lru_cache()
+
+    @cached_property
     def perimeter_skewness(self):
         """skewness of pairwise distances between perimeter points"""
         return self.perimeter_stats[2]
-    @property
-    @lru_cache()
+
+    @cached_property
     def perimeter_kurtosis(self):
         """kurtosis of pairwise distances between perimeter points"""
         return self.perimeter_stats[3]
-    @property
-    @lru_cache()
+
+    @cached_property
     def hausdorff_symmetry(self):
         """takes the rotated blob perimeter and compares it
         with itself rotated 180 degrees, rotated 90 degrees,
@@ -250,16 +250,16 @@ class BlobFeatures(object):
         the modified Hausdorff distance between the rotated
         blob perimeter and each of those variants"""
         return hausdorff_symmetry(self.rotated_image)
-    @property
-    @lru_cache()
+
+    @cached_property
     def h180(self):
         return self.hausdorff_symmetry[0]
-    @property
-    @lru_cache()
+
+    @cached_property
     def h90(self):
         return self.hausdorff_symmetry[1]
-    @property
-    @lru_cache()
+
+    @cached_property
     def hflip(self):
         return self.hausdorff_symmetry[2]
     @property
@@ -271,8 +271,8 @@ class BlobFeatures(object):
     @property
     def hflip_over_h180(self):
         return self.hflip / self.h180
-    @property
-    @lru_cache()
+
+    @cached_property
     def binary_symmetry(self):
         return binary_symmetry(self.rotated_image)
     @property
@@ -286,11 +286,14 @@ class BlobFeatures(object):
         return self.binary_symmetry[2]
 
 class RoiFeatures(object):
+
     def __init__(self,roi_image,blobs_image=None):
         self.image = np.array(roi_image).astype(np.uint8)
         self._blobs_image = None
         if blobs_image is not None:
             self._blobs_image = blobs_image
+        self._sorted_blob_cache = None
+
     @property
     def blobs_image(self):
         """return the mask resulting from segmenting the image using
@@ -298,8 +301,10 @@ class RoiFeatures(object):
         if self._blobs_image is None:
             self._blobs_image = segment_roi(self.image)
         return self._blobs_image
-    @property
-    @lru_cache()
+
+    # @memoized_method()
+
+    @cached_property
     def blobs(self):
         """returns the BlobFeatures objects representing each of the blobs in
         the segmented mask, ordered by largest area to smallest area"""
@@ -307,24 +312,25 @@ class RoiFeatures(object):
         cropped_rois = [self.image[bbox] for bbox in bboxes]
         Bs = [BlobFeatures(b,R) for b,R in zip(blobs,cropped_rois)]
         return sorted(Bs, key=lambda B: B.area, reverse=True)
+
     @property
     def num_blobs(self):
         return len(self.blobs)
-    @property
-    @lru_cache()
+
+    @cached_property
     def rotated_blobs_image(self):
         if self.num_blobs == 0:
             return None
         orientation = self.blobs[0].orientation
         return rotate_blob(self.blobs_image, orientation)
-    @property
-    @lru_cache()
+
+    @cached_property
     def hog(self):
         """returns the Histogram of Oriented Gradients of the image.
         see ifcb.features.hog"""
         return image_hog(self.image)
-    @property
-    @lru_cache()
+
+    @cached_property
     def invmoments(self):
         """invariant moments computed using algorithm described in
         Digital Image Processing Using MATLAB, pp. 470-472"""
@@ -332,14 +338,14 @@ class RoiFeatures(object):
             return invmoments(self.blobs_image)
         else:
             return [0 for _ in range(7)]
-    @property
-    @lru_cache()
+
+    @cached_property
     def texture_pixels(self):
         """all pixel values of the contrast-enhanced image, in the blob,
         as a flat list"""
         return texture_pixels(self.image, self.blobs_image)
-    @property
-    @lru_cache()
+
+    @cached_property
     def texture_stats(self):
         """mean intensity, average contrast, smoothness,
         third moment, uniformity, entropy of texture pixels.
@@ -352,66 +358,66 @@ class RoiFeatures(object):
             return statxture(self.texture_pixels)
         else:
             return [0 for _ in range(6)]
-    @property
-    @lru_cache()
+
+    @cached_property
     def texture_average_gray_level(self):
         """average gray level of texture pixels"""
         return self.texture_stats[0]
-    @property
-    @lru_cache()
+
+    @cached_property
     def texture_average_contrast(self):
         """average contrast of texture pixels"""
         return self.texture_stats[1]
-    @property
-    @lru_cache()
+
+    @cached_property
     def texture_smoothness(self):
         """smoothness of texture pixels"""
         return self.texture_stats[2]
-    @property
-    @lru_cache()
+
+    @cached_property
     def texture_third_moment(self):
         """third moment of texture pixels"""
         return self.texture_stats[3]
-    @property
-    @lru_cache()
+
+    @cached_property
     def texture_uniformity(self):
         """uniformity of texture pixels"""
         return self.texture_stats[4]
-    @property
-    @lru_cache()
+
+    @cached_property
     def texture_entropy(self):
         """entropy of texture pixels"""
         return self.texture_stats[5]
     @property
-    @lru_cache()
+    # @lru_cache()
     def phi(self,n):
         """nth invariant moment (see invmoments)"""
         return self.invmoments[n-1]
-    @property
-    @lru_cache()
+
+    @cached_property
     def ring_wedge(self):
         if self.num_blobs > 0:
             pwr_integral, pwr_ratio, wedges, rings = ring_wedge(self.blobs_image)
             return pwr_integral, pwr_ratio, wedges, rings
         else:
             return [0, 0, [0 for _ in range(_N_WEDGES)], [0 for _ in range(_N_RINGS)]]
-    @property
-    @lru_cache()
+
+    @cached_property
     def rw_power_integral(self):
         return self.ring_wedge[0]
-    @property
-    @lru_cache()
+
+    @cached_property
     def rw_power_ratio(self):
         return self.ring_wedge[1]
-    @property
-    @lru_cache()
+
+    @cached_property
     def wedge(self):
         return self.ring_wedge[2]
-    @property
-    @lru_cache()
+
+    @cached_property
     def ring(self):
         return self.ring_wedge[3]
-    @lru_cache()
+    # @lru_cache()
     def summed_attr(self, attr):
         return np.sum([getattr(b, attr) for b in self.blobs])
     @property
