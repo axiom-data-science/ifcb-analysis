@@ -1,5 +1,6 @@
 import json
 import logging
+import psutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Tuple, Union
@@ -43,12 +44,29 @@ class KerasModelConfig:
         return {ix: name for ix, name in enumerate(classes)}
 
 
+# https://stackoverflow.com/a/43690506/193435
+def human_size(size, decimal_places=2):
+    for unit in ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB']:
+        if size < 1024.0 or unit == 'PiB':
+            break
+        size /= 1024.0
+    return f"{size:.{decimal_places}f} {unit}"
+
+
+def log_debug_with_memory(logstr):
+    mem_info = psutil.Process().memory_info()
+    logging.debug(f'{logstr} (mem rss {human_size(mem_info.rss)} vms {human_size(mem_info.vms)})')
+
+
 def predict(model_config: KerasModelConfig, image_stack: np.ndarray, batch_size=64) -> pd.DataFrame:
     # Classify images and save as csv
+    log_debug_with_memory('Starting classification')
     predictions = model_config.model.predict(image_stack, batch_size)
+    log_debug_with_memory('Finished prediction, creating data frame')
     predictions_df = pd.DataFrame(
         predictions,
         columns=model_config.class_names.values()
     )
+    log_debug_with_memory('Finished creating data frame')
 
     return predictions_df
