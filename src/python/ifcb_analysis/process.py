@@ -227,7 +227,7 @@ def available_bins(ifcb_data_dir: Path, pids: List[str], start_date: datetime, e
         if isinstance(end_date, datetime):
             end_date = end_date.date()
 
-        ndays = (end_date - start_date).days
+        ndays = (end_date - start_date).days + 1
         dates = [start_date + timedelta(days=i) for i in range(ndays)]
 
         bins = []
