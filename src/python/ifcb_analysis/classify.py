@@ -62,7 +62,7 @@ def predict(model_config: KerasModelConfig, image_stack: np.ndarray, batch_size=
     # Classify images and save as csv
     log_debug_with_memory('Starting classification')
     predictions = model_config.model.predict(image_stack, batch_size)
-    log_debug_with_memory('Finished prediction, creating data frame')
+    log_debug_with_memory('Finished classification, creating data frame')
     predictions_df = pd.DataFrame(
         predictions,
         columns=model_config.class_names.values()
