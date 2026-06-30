@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 from dask.distributed import get_worker
 from ifcb.data.imageio import format_image
 from pathlib import Path
-from ifcb_analysis import classify, compute_features
+from ifcb_analysis import classify, compute_features, compute_features_v4
 from zipfile import ZipFile
 from PIL import Image
 
@@ -33,6 +33,7 @@ def process_bin(
     extract_images: bool = True,
     classify_images: bool = True,
     force: bool = False,
+    feature_version: int = 2,
     dask_log_path: str = None,
     dask_log_level: int = None,
 ):
@@ -60,8 +61,10 @@ def process_bin(
     bin = ifcb.open_raw(file)
 
     blobs_fname = outdir / f'{bin.lid}_blobs_v2.zip'
-    features_fname = outdir / f'{bin.lid}_fea_v2.csv'
+    features_fname = outdir / f'{bin.lid}_fea_v{feature_version}.csv'
     class_fname = outdir / f'{bin.lid}_class.h5'
+
+    _compute_features = compute_features_v4 if feature_version == 4 else compute_features
 
     # determine which files need to be (re-)generated
     mode_change_messages = []
@@ -111,7 +114,7 @@ def process_bin(
 
                 if extract_images:
                     # Compute features
-                    blob_img, features = compute_features(image)
+                    blob_img, features = _compute_features(image)
 
                     # Write blob image to zip as bytes.
                     # Include ROI number in filename. e.g. D20141117T234033_IFCB102_2.png
@@ -280,6 +283,7 @@ def process(
     classify_images: bool = True,
     force: bool = False,
     use_dask: bool = True,
+    feature_version: int = 2,
     dask_log_path: str = None,
     dask_log_level: int = None,
 ):
@@ -321,12 +325,9 @@ def process(
                 [model_config] * len(bins),
                 [extract_images] * len(bins),
                 [classify_images] * len(bins),
-                [force] * len(bins)
+                [force] * len(bins),
+                [feature_version] * len(bins),
             ]
-
-            if dask_log_path and dask_log_level:
-                args.append([dask_log_path] * len(bins))
-                args.append([dask_log_level] * len(bins))
 
             futures = client.map(
                 process_bin,
@@ -348,7 +349,8 @@ def process(
                 outdir = output_dir
 
             try:
-                process_bin(bin, outdir, model_config, extract_images, classify_images, force)
+                process_bin(bin, outdir, model_config, extract_images, classify_images, force,
+                            feature_version=feature_version)
             except Exception as e:
                 logging.error(f'Error processing {bin}: {e}')
 
@@ -363,6 +365,7 @@ def yaml_config_callback(ctx, param, value):
 @click.command()
 @click.option('--extract-images/--no-extract-images', default=True)
 @click.option('--classify-images/--no-classify-images', default=True)
+@click.option('--feature-version', type=click.Choice(['2', '4']), default='2', help='Feature extraction version (2 or 4)')
 @click.option('--force/--no-force', default=False)
 @click.option('--log-level', default='INFO')
 @click.option('--log-file', type=click.Path(writable=True, dir_okay=False))
@@ -386,6 +389,7 @@ def cli(
     ctx,
     extract_images: bool,
     classify_images: bool,
+    feature_version: str,
     force: bool,
     log_level: str,
     log_file: Path,
@@ -443,6 +447,7 @@ def cli(
         use_dask=use_dask,
         dask_log_path=dask_log_path,
         dask_log_level=log_level,
+        feature_version=int(feature_version),
     )
 
 

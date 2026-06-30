@@ -19,6 +19,22 @@ def find_perimeter(B):
                   [ 0,-1, 0]])
     return correlate(B,S,mode='constant') > 0
 
+def benkrid_perimeter(border_image):
+    """Perimeter estimation based on K. Benkrid, D. Crookes.
+    Design and FPGA Implementation of a Perimeter Estimator.
+    The Queen's University of Belfast."""
+    weights = np.zeros(50)
+    weights[[5, 7, 15, 17, 25, 27]] = 1
+    weights[[21, 33]] = np.sqrt(2)
+    weights[[13, 23]] = (1 + np.sqrt(2)) / 2
+
+    kernel = np.array([[10, 2, 10],
+                       [ 2, 1,  2],
+                       [10, 2, 10]])
+    coded_image = correlate(border_image.astype(np.float32), kernel, mode='constant')
+    weighted_coded_image = weights[coded_image.astype(int)]
+    return np.sum(weighted_coded_image)
+
 def hysthresh(img,T1,T2):
     """hysteresis thresholding"""
     """All pixels with values above T1 are marked as edges.
