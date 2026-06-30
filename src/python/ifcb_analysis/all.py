@@ -11,7 +11,7 @@ from .blob_geometry import (binary_symmetry, convex_hull, convex_hull_image,
                             invmoments)
 from .blobs import blob_shape, find_blobs, rotate_blob
 from .hog import image_hog
-from .morphology import find_perimeter
+from .morphology import benkrid_perimeter as _benkrid_perimeter, find_perimeter
 from .perimeter import hausdorff_symmetry, perimeter_stats
 from .ringwedge import _N_RINGS, _N_WEDGES, ring_wedge
 from .segmentation import segment_roi
@@ -57,12 +57,23 @@ class BlobFeatures(object):
     @cached_property
     def perimeter(self):
         return self.regionprops.perimeter
+    @cached_property
+    def benkrid_perimeter(self):
+        return _benkrid_perimeter(self.perimeter_image)
     @property
     def area_over_perimeter_squared(self):
         return self.area / self.perimeter**2
     @property
     def area_over_perimeter(self):
         return self.area / self.perimeter
+    @property
+    def area_over_benkrid_perimeter_squared(self):
+        p = self.benkrid_perimeter
+        return self.area / p**2 if p else 0
+    @property
+    def area_over_benkrid_perimeter(self):
+        p = self.benkrid_perimeter
+        return self.area / p if p else 0
 
     @cached_property
     def extent(self):
@@ -448,9 +459,18 @@ class RoiFeatures(object):
     def summed_feret_diameter(self):
         return self.summed_attr('feret_diameter')
     @property
+    def summed_benkrid_perimeter(self):
+        return self.summed_attr('benkrid_perimeter')
+    @property
     def summed_convex_perimeter_over_perimeter(self):
         if self.num_blobs > 0:
             return self.summed_convex_perimeter / self.summed_perimeter
+        else:
+            return 0
+    @property
+    def summed_convex_perimeter_over_benkrid_perimeter(self):
+        if self.num_blobs > 0:
+            return self.summed_convex_perimeter / self.summed_benkrid_perimeter
         else:
             return 0
 
@@ -533,5 +553,47 @@ def compute_features(roi_image,blobs_image=None):
         ('Hflip_over_H180', b.hflip_over_h180),
         ('summedConvexPerimeter_over_Perimeter', r.summed_convex_perimeter_over_perimeter),
         ('rotated_BoundingBox_solidity', b.rotated_bbox_solidity)
+    ]
+    return (r.blobs_image, f)
+
+N_FEATURES_V4 = 30
+
+def compute_features_v4(roi_image, blobs_image=None):
+    r = RoiFeatures(roi_image, blobs_image)
+    if r.num_blobs > 0:
+        b = r.blobs[0]
+    else:
+        b = ZeroMock()
+    f = [
+        ('Area', b.area),
+        ('Biovolume', b.biovolume),
+        ('BoundingBox_xwidth', b.bbox_xwidth),
+        ('BoundingBox_ywidth', b.bbox_ywidth),
+        ('ConvexArea', b.convex_area),
+        ('ConvexPerimeter', b.convex_perimeter),
+        ('Eccentricity', b.eccentricity),
+        ('EquivDiameter', b.equiv_diameter),
+        ('Extent', b.extent),
+        ('MajorAxisLength', b.major_axis_length),
+        ('MinorAxisLength', b.minor_axis_length),
+        ('Orientation', b.orientation),
+        ('Perimeter', b.benkrid_perimeter),
+        ('RepresentativeWidth', b.representative_width),
+        ('Solidity', b.solidity),
+        ('SurfaceArea', b.surface_area),
+        ('maxFeretDiameter', b.max_feret_diameter),
+        ('minFeretDiameter', b.min_feret_diameter),
+        ('numBlobs', r.num_blobs),
+        ('summedArea', r.summed_area),
+        ('summedBiovolume', r.summed_biovolume),
+        ('summedConvexArea', r.summed_convex_area),
+        ('summedConvexPerimeter', r.summed_convex_perimeter),
+        ('summedMajorAxisLength', r.summed_major_axis_length),
+        ('summedMinorAxisLength', r.summed_minor_axis_length),
+        ('summedPerimeter', r.summed_benkrid_perimeter),
+        ('summedSurfaceArea', r.summed_surface_area),
+        ('Area_over_PerimeterSquared', b.area_over_benkrid_perimeter_squared),
+        ('Area_over_Perimeter', b.area_over_benkrid_perimeter),
+        ('summedConvexPerimeter_over_Perimeter', r.summed_convex_perimeter_over_benkrid_perimeter),
     ]
     return (r.blobs_image, f)
